@@ -1,0 +1,24 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/certs-dev.yaml
+# Description: dev-environment cert list, loaded as a second values file
+#              ONLY by the cert-vault-sync-dev Application
+#              (source.helm.valueFiles: [values.yaml, certs-dev.yaml]).
+#              caBootstrap/letsencrypt/the k8s-auth reviewer stay off (their
+#              values.yaml default) here - only issuers.yaml, loaded by the
+#              base Application, turns them on.
+# -----------------------------------------------------------------------------
+
+certs:
+  - cn: winter.ctlabs.internal
+    san:
+      - ip:127.0.0.1
+    vault:
+      mount: secrets/dev
+
+  - cn: winterland.ctlabs.internal
+    san:
+      - ip:127.0.0.1
+    vault:
+      mount: secrets/dev

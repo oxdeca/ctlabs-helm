@@ -1,0 +1,67 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/certificates.yml
+# -----------------------------------------------------------------------------
+
+{{- $certCount := len .Values.certs -}}
+{{- range $i, $cert := .Values.certs }}
+---
+{{- $merged := mergeOverwrite (deepCopy $.Values.defaults) $cert -}}
+{{- $slug := include "cert-vault-sync.slug" $merged.cn }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $slug }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  secretName: {{ $slug }}-tls
+  commonName: {{ $merged.cn | quote }}
+  {{- if $merged.duration }}
+  duration: {{ $merged.duration | quote }}
+  {{- end }}
+  {{- if $merged.renewBefore }}
+  renewBefore: {{ $merged.renewBefore | quote }}
+  {{- end }}
+  {{- if $merged.renewBeforePercentage }}
+  renewBeforePercentage: {{ include "cert-vault-sync.renewBeforePercentage" (dict "cert" $merged "index" $i "count" $certCount) }}
+  {{- end }}
+  issuerRef:
+    name: {{ $merged.issuer.name }}
+    kind: {{ $merged.issuer.kind | default "ClusterIssuer" }}
+  {{- if $merged.privateKey }}
+  privateKey:
+    algorithm: {{ $merged.privateKey.algorithm | default "RSA" }}
+    {{- if ne ($merged.privateKey.algorithm | default "RSA") "Ed25519" }}
+    size: {{ $merged.privateKey.size | default 2048 }}
+    {{- end }}
+    rotationPolicy: {{ $merged.privateKey.rotationPolicy | default "Always" }}
+  {{- end }}
+  {{- $dnsNames := list -}}
+  {{- $ipAddresses := list -}}
+  {{- range $merged.san -}}
+    {{- if hasPrefix "dns:" . -}}
+      {{- $dnsNames = append $dnsNames (trimPrefix "dns:" .) -}}
+    {{- else if hasPrefix "ip:" . -}}
+      {{- $ipAddresses = append $ipAddresses (trimPrefix "ip:" .) -}}
+    {{- else -}}
+      {{- $dnsNames = append $dnsNames . -}}
+    {{- end -}}
+  {{- end -}}
+  {{- /* cn is implied as a SAN - add it unless already listed explicitly (e.g. a wildcard entry covering it, or listed by hand) */ -}}
+  {{- if not (has $merged.cn $dnsNames) -}}
+    {{- $dnsNames = prepend $dnsNames $merged.cn -}}
+  {{- end -}}
+  {{- if $dnsNames }}
+  dnsNames:
+    {{- range $dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if $ipAddresses }}
+  ipAddresses:
+    {{- range $ipAddresses }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

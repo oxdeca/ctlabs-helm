@@ -1,0 +1,36 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/letsencrypt.yml
+# -----------------------------------------------------------------------------
+
+{{- range $iss := .Values.letsencrypt.issuers }}
+{{-   $merged := mergeOverwrite (deepCopy $.Values.letsencrypt.defaults) $iss }}
+{{-   if $merged.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ required "letsencrypt.issuers[].issuerName is required when enabled" $merged.issuerName }}
+spec:
+  acme:
+    server: {{ required "letsencrypt.issuers[].server is required when enabled" $merged.server | quote }}
+    email: {{ required "letsencrypt.issuers[].email is required when enabled" $merged.email | quote }}
+    # cert-manager creates/manages this secret itself on first ACME account
+    # registration - nothing to pre-create.
+    privateKeySecretRef:
+      name: {{ $merged.issuerName }}-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              # Secret is NOT managed by this chart. ClusterIssuer secretRefs
+              # always resolve in cert-manager's cluster-resource-namespace
+              # (this install's default: `cert-manager`, same as this chart's
+              # own CA secret in ca-bootstrap.yml). Create it out-of-band:
+              #   kubectl -n cert-manager create secret generic <name> \
+              #     --from-literal=<key>=<cloudflare-api-token>
+              name: {{ required "letsencrypt.issuers[].cloudflare.secretRef.name is required when enabled" $merged.cloudflare.secretRef.name }}
+              key: {{ $merged.cloudflare.secretRef.key | default "api-token" }}
+{{-   end }}
+{{- end }}

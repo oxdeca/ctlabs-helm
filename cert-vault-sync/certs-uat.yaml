@@ -1,0 +1,34 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/certs-uat.yaml
+# Description: uat-environment cert list, loaded as a second values file
+#              ONLY by the cert-vault-sync-uat Application
+#              (source.helm.valueFiles: [values.yaml, certs-uat.yaml]).
+#              caBootstrap/letsencrypt/the k8s-auth reviewer stay off (their
+#              values.yaml default) here - only issuers.yaml, loaded by the
+#              base Application, turns them on.
+# -----------------------------------------------------------------------------
+
+certs:
+  - cn: fall.ctlabs.internal
+    san:
+      - dns:herbst.ctlabs.internal
+      - ip:127.0.0.1
+
+  - cn: spring.ctlabs.internal
+    privateKey:
+      algorithm: RSA
+      size: 8192
+    san:
+      - dns:*.spring.ctlabs.internal
+      - ip:127.0.0.1
+
+  - cn: falling.ctlabs.internal
+    san:
+      - ip:127.0.0.1
+
+  - cn: springtime.ctlabs.internal
+    duration: 1h
+    san:
+      - ip:127.0.0.1

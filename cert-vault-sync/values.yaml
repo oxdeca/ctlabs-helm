@@ -1,0 +1,144 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/values.yaml
+# -----------------------------------------------------------------------------
+#
+# This file is Helm's implicit base layer - always loaded first, by every
+# cert-vault-sync Application, regardless of what else is in
+# source.helm.valueFiles. It holds only what's genuinely shared: per-cert
+# defaults and Vault connection info. Everything that belongs to exactly one
+# Application is OFF here and turned on by that Application's own override
+# file (loaded second):
+#   - issuers.yaml   (cert-vault-sync, the base app)        - caBootstrap,
+#     letsencrypt.issuers, the Vault k8s-auth reviewer identity.
+#   - certs-dev.yaml / certs-uat.yaml / certs-prod.yaml     - that
+#     environment's certs: list.
+# Wired in the ctlabs repo's setup_profiles.yml
+# (argoapp.applications[].source.helm.valueFiles).
+# -----------------------------------------------------------------------------
+
+caBootstrap:
+  enabled: false
+
+letsencrypt:
+  # Shared across all issuers below; each entry under issuers: can override
+  # anything here (same defaults/override pattern as certs:/defaults below).
+  defaults:
+    enabled: false
+    server: https://acme-v02.api.letsencrypt.org/directory  # staging: https://acme-staging-v02.api.letsencrypt.org/directory
+    cloudflare:
+      secretRef:
+        key: api-token
+  issuers: []
+
+vault:
+  server: "https://vdb1.ctlabs.internal:8200"
+  namespace: security-tools
+  # Each Vault mount/environment authenticates as its own ServiceAccount
+  # (cert-vault-sync-<env>, created per mount in secret-store.yml), validated
+  # by Vault's kubernetes auth method - no stored credential to leak or
+  # rotate. mountPath must match the fact's ctlabs_vault_setup.kubernetes[].
+  # mount on the vdb1 side (see roles/ctlabs_vault/README.md in
+  # ctlabs-ansible).
+  kubernetesAuth:
+    mountPath: kubernetes
+    # Reviewer identity Vault uses to call the K8s TokenReview API when
+    # validating the ServiceAccount tokens above. Cluster-wide, one per
+    # cluster (not per environment) - off here, turned on only by
+    # issuers.yaml (the base app), or every Application that loaded this
+    # file would try to create it and fight over ownership.
+    reviewer:
+      enabled: false
+      serviceAccountName: cert-vault-sync-vault-reviewer
+  # The CA that signed vdb1's own TLS serving cert (not the k8s auth CA used
+  # above - that one validates ServiceAccount tokens, this one validates
+  # Vault's server certificate). Delivered as a ConfigMap
+  # (provider.vault.caProvider) rather than inline base64 (provider.vault.
+  # caBundle) so it reads as plain PEM in git instead of a wall of base64,
+  # and so it's one object instead of N copies pasted into every
+  # ClusterSecretStore. Off here - only issuers.yaml (the base app) turns it
+  # on and supplies the actual PEM, same pattern as caBootstrap/letsencrypt/
+  # the reviewer identity above.
+  ca:
+    enabled: false
+    configMapName: cert-vault-sync-vault-ca
+    pem: ""
+
+# -----------------------------------------------------------------------------
+# defaults: common per-certificate values. Any key here can be overridden on
+# an individual entry under `certs:` (e.g. certs[].issuer, certs[].privateKey,
+# certs[].vault, certs[].refreshInterval) - overrides are deep-merged on top
+# of this block, so a cert only needs to specify what differs. Add new common
+# attributes here as they come up instead of repeating them per-cert.
+# -----------------------------------------------------------------------------
+defaults:
+  issuer:
+    name: ctlabs-internal-ca   # override per-cert, e.g. {name: letsencrypt-cloudflare, kind: ClusterIssuer}, for a real public domain
+    kind: ClusterIssuer
+
+  privateKey:
+    algorithm: RSA   # RSA | ECDSA | Ed25519 (cert-manager spec.privateKey.algorithm)
+    size: 4096       # RSA: 2048/3072/4096/8192, ECDSA: 256/384/521, ignored for Ed25519
+    rotationPolicy: Always   # Always | Never - rotate the key on every renewal. Pinned
+                             # explicitly (cert-manager >= v1.18 already defaults to Always)
+                             # so intent survives downgrades / feature-gate changes.
+  vault:
+    mount: secrets/uat
+    includeCaCert: true   # ACME-issued certs (e.g. Let's Encrypt) have no separate ca.crt key - set false per-cert
+
+  refreshInterval: 1m
+
+  # duration (spec.duration): REQUESTED lifetime. Fully honored by our own
+  # internal CA, but for ACME issuers (Let's Encrypt) it's only a hint the
+  # issuer may ignore - LE currently issues 90d regardless of what's asked.
+  #duration: 2160h   # 90d, Go duration units only (h/m/s - no "d" suffix)
+  duration: 1h
+
+  # renewBeforePercentage, NOT a fixed renewBefore: renew at this % of
+  # whatever lifetime the issuer ACTUALLY returned (not the requested
+  # duration above) - stays correct automatically as public CAs keep
+  # shrinking max validity (CA/Browser Forum glide path: 398d today -> 200d
+  # (2026) -> 100d (2027) -> 47d (2029)), with no absolute number to go
+  # stale. Mutually exclusive with renewBefore - override per-cert with an
+  # absolute renewBefore instead if ever needed (and set
+  # renewBeforePercentage: null on that cert to drop this default).
+  renewBeforePercentage: 10
+  
+  # Renewal spread - RENEWALS ONLY. This never delays initial issuance (all
+  # Certificates are created at once; first issuance is immediate and gets
+  # planned separately against the CA's issuance quota) and never delays a
+  # reissue (identifier change -> immediate, emergency only). Without the
+  # spread, every cert issued around the same time shares the same
+  # renewBeforePercentage of the same duration, so they all cross their
+  # renewal threshold on the same instant - a thundering herd of
+  # simultaneous renewals/ACME/DNS-01 calls. This adds a 0..N percentage-
+  # point offset per cert, assigned by the cert's POSITION in this
+  # environment's certs list: first cert = base, last cert = base+spread,
+  # evenly spaced in between. Positional, NOT a cn-hash: a hash clusters on
+  # structured names (some buckets empty, others piled up); list position is
+  # even by construction whatever the names look like. Small is fine: LE
+  # exempts same-identifier renewals from the 50/registered-domain/7d quota
+  # (global across accounts; only 5/exact-set/7d applies - never approached
+  # at a 45d+ cycle), so the spread only sizes the load on the ACME per-IP
+  # burst limit and the DNS-01 provider API: busiest renewal week is about
+  # N*7/(spread*0.9*actual lifetime) certs (45d lifetime, spread 5 -> all
+  # renewals evenly over ~2.3d, i.e. ~44/day at N=100). The base
+  # renewBeforePercentage is the recovery budget once a renewal triggers:
+  # 10 -> 4.5d margin at 45d validity, 9d at 90d (cert-manager retries
+  # exponentially, capped at 32h per attempt; 5 minutes is the enforced
+  # floor, which is what the 1h test certs get). 0 = disabled (all certs
+  # keep the exact base percentage above); set per-cert to 0 to pin that
+  # cert to the base. Only applies to certs using renewBeforePercentage -
+  # no effect on a per-cert absolute renewBefore override.
+  renewBeforePercentageSpread: 5
+
+# cn is automatically included as a dnsNames SAN - no need to repeat it in
+# san: below (skipped only if san: already lists that exact name). Note a
+# wildcard entry like *.example.com does NOT imply example.com itself.
+#
+# certs: is empty here - each environment's Application supplies its own
+# list via its own override file (certs-dev.yaml/certs-uat.yaml/
+# certs-prod.yaml), which replaces this empty list wholesale (Helm replaces
+# a list-valued key across -f files, it doesn't merge it).
+certs: []
