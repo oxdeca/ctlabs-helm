@@ -1,0 +1,60 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/issuers/pki.yaml
+# privateCA issuer variant (a PKI is by definition private): bootstraps a
+# whole private PKI, not just an
+# issuer - a self-signed root ClusterIssuer, the root CA Certificate it
+# signs (key/cert in the cert-manager namespace), and the CA ClusterIssuer
+# named by the entry. Three objects because the issuer cannot exist without
+# the CA cert, and the CA cert cannot exist without the root issuer.
+# Renders nothing for an issuer without a privateCA: block.
+#
+# Nothing here is lab-specific: on a fresh cluster the chain bootstraps
+# itself on first sync, so every lab up gets a fresh CA with no PEM to
+# import or go stale (contrast the out-of-band Vault CA ConfigMap that
+# secretStores.vault.ca references).
+# -----------------------------------------------------------------------------
+
+{{- range $iss := .Values.issuers }}
+{{-   if hasKey $iss "privateCA" }}
+{{-     $enabled := true }}
+{{-     if hasKey $iss "enabled" }}{{- $enabled = $iss.enabled }}{{- end }}
+{{-     if $enabled }}
+{{-     $pca := $iss.privateCA }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cert-vault-sync-selfsigned
+spec:
+  selfSigned: {}
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cert-vault-sync-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: cert-vault-sync-ca
+  secretName: {{ required "issuers[].privateCA.secretName is required" $pca.secretName }}
+  issuerRef:
+    name: cert-vault-sync-selfsigned
+    kind: ClusterIssuer
+  duration: {{ required "issuers[].privateCA.duration is required" $pca.duration }}
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ required "issuers[].name is required" $iss.name }}
+spec:
+  ca:
+    secretName: {{ required "issuers[].privateCA.secretName is required" $pca.secretName }}
+{{-     end }}
+{{-   end }}
+{{- end }}

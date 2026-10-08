@@ -2,21 +2,32 @@
 
 # -----------------------------------------------------------------------------
 # File: cert-vault-sync/certs-uat.yaml
-# Description: uat-environment cert list, loaded as a second values file
-#              ONLY by the cert-vault-sync-uat Application
+# Description: uat-environment overlay, loaded as a second values file ONLY
+#              by the cert-vault-sync-uat Application
 #              (source.helm.valueFiles: [values.yaml, certs-uat.yaml]).
-#              caBootstrap/letsencrypt/the k8s-auth reviewer stay off (their
-#              values.yaml default) here - only issuers.yaml, loaded by the
-#              base Application, turns them on.
+#              Declares uat's secretstore instance and certificate list.
+#              Issuers stay off (their values.yaml default) - only
+#              issuers.yaml, loaded by the base Application, declares
+#              issuer instances.
 # -----------------------------------------------------------------------------
 
-certs:
+secretStores:
+  uat:
+    # uat used to inherit this from the shared base (defaults.vault.mount)
+    # while dev/prod declared it per-cert - declared here now, like every
+    # other env, so no env-specific value lives in values.yaml.
+    mount: secrets/uat
+
+certificates:
+  # cn is included as a dnsNames SAN automatically - see values.yaml.
   - cn: fall.ctlabs.internal
+    store: uat
     san:
       - dns:herbst.ctlabs.internal
       - ip:127.0.0.1
 
   - cn: spring.ctlabs.internal
+    store: uat
     privateKey:
       algorithm: RSA
       size: 8192
@@ -25,10 +36,12 @@ certs:
       - ip:127.0.0.1
 
   - cn: falling.ctlabs.internal
+    store: uat
     san:
       - ip:127.0.0.1
 
   - cn: springtime.ctlabs.internal
+    store: uat
     duration: 1h
     san:
       - ip:127.0.0.1

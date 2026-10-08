@@ -4,97 +4,115 @@
 # File: cert-vault-sync/values.yaml
 # -----------------------------------------------------------------------------
 #
-# This file is Helm's implicit base layer - always loaded first, by every
-# cert-vault-sync Application, regardless of what else is in
-# source.helm.valueFiles. It holds only what's genuinely shared: per-cert
-# defaults and Vault connection info. Everything that belongs to exactly one
-# Application is OFF here and turned on by that Application's own override
-# file (loaded second):
-#   - issuers.yaml   (cert-vault-sync, the base app)        - caBootstrap,
-#     letsencrypt.issuers, the Vault k8s-auth reviewer identity.
-#   - certs-dev.yaml / certs-uat.yaml / certs-prod.yaml     - that
-#     environment's certs: list.
+# Helm's implicit base layer - loaded first by EVERY cert-vault-sync
+# Application, regardless of what else is in source.helm.valueFiles. The
+# chart's object model:
+#
+#     issuer |1---*| certificate |*---1| secretstore
+#
+# with PushSecret (templates/sync/) as the certificate<->secretstore sync
+# edge, and the private-PKI issuer entry (issuers[].privateCA) as the thing
+# that PRODUCES the internal-ca issuer.
+#
+# Namespace rule: a class key holds its INSTANCES directly - no items/
+# wrapper layer. Shared config sits where it is named (secretStores.vault =
+# the connection every store shares) or under the top-level defaults: key
+# (Certificate defaults - the only homogeneous collection; issuer entries
+# are self-contained, they have no shared defaults).
+#
+#   secretStores:  vault: connection + named instances (mount: ...) in overlays
+#   issuers:       ACME / private-PKI issuer list (base app only)
+#   defaults:      Certificate defaults (this class's shared attributes)
+#   certificates:  Certificate instances (per-env lists)
+#   sync:          PushSecret link config (the edge's own attributes)
+#
+# Everything here is inert. Instances live only in each Application's own
+# overlay file (loaded second):
+#   - issuers.yaml         (base app)   - issuers (cluster-wide, base-owned)
+#   - certs-dev/uat/prod   (env apps)   - that env's secretStores instances
+#                                        + certificates list
 # Wired in the ctlabs repo's setup_profiles.yml
-# (argoapp.applications[].source.helm.valueFiles).
+# (argoapp.applications[].source.helm.valueFiles). Those filenames and the
+# app<->resource ownership mapping are a CONTRACT with that wiring - renaming
+# them needs a ctlabs playbook run; changing this file's internals does not.
 # -----------------------------------------------------------------------------
 
-caBootstrap:
-  enabled: false
+secretStores:
+  # Vault IS the secret store (provider=vault): address, auth and TLS trust
+  # are attributes of every store instance, configured once here. The key
+  # `vault` is the connection itself (no mount: key); every OTHER entry is
+  # a store instance and must carry a mount:. Instances are declared only
+  # in each env's certs-<env>.yaml - the base app must declare none, or it
+  # would render stores it doesn't own and fight the env apps over ArgoCD's
+  # live resource-ownership labels.
+  vault:
+    server: "https://vdb1.ctlabs.internal:8200"
+    namespace: security-tools
+    # Each store instance authenticates to Vault's jwt auth method as its own
+    # ServiceAccount (one created per instance in templates/secretstores/
+    # stores.yml; the SA name doubles as the Vault role name, see the
+    # roles/ctlabs_vault jwt setup fact in ctlabs-ansible). Vault validates
+    # each short-lived SA token LOCALLY against the cluster's SA signing key
+    # (jwt_validation_pubkeys) - no TokenReview, so no long-lived reviewer
+    # JWT and nothing stored on the Vault side. path must match the fact's
+    # ctlabs_vault_setup.jwt[].mount on the vdb1 side.
+    jwtAuth:
+      path: jwt
+    # TLS trust for Vault's SERVING certificate (not the k8s-auth CA above -
+    # that one validates ServiceAccount tokens, this one validates Vault's
+    # server certificate). Reference only: the ConfigMap is deliberately NOT
+    # chart material. The lab CA under /etc/ca-ctlabs/ is regenerated on
+    # every lab up, so the PEM that used to live here (vault.ca.pem) went
+    # stale each rebuild - same rule as the Cloudflare token Secret in
+    # issuers.yaml: environment material is created out-of-band (lab
+    # pipeline: kubectl create configmap from /etc/ca-ctlabs/ca-ctlabs.crt)
+    # and referenced by name+key only.
+    ca:
+      configMapName: cert-vault-sync-vault-ca
+      key: ca.crt
+  # Instances are sibling entries of `vault:` above, keyed by the name
+  # certificates reference, e.g.:
+  #   uat: {mount: secrets/uat}
+  # Each renders one ServiceAccount + ClusterSecretStore. Declared ONLY in
+  # the env overlays - see the vault: comment.
 
-letsencrypt:
-  # Shared across all issuers below; each entry under issuers: can override
-  # anything here (same defaults/override pattern as certs:/defaults below).
-  defaults:
-    enabled: false
-    server: https://acme-v02.api.letsencrypt.org/directory  # staging: https://acme-staging-v02.api.letsencrypt.org/directory
-    cloudflare:
-      secretRef:
-        key: api-token
-  issuers: []
-
-vault:
-  server: "https://vdb1.ctlabs.internal:8200"
-  namespace: security-tools
-  # Each Vault mount/environment authenticates as its own ServiceAccount
-  # (cert-vault-sync-<env>, created per mount in secret-store.yml), validated
-  # by Vault's kubernetes auth method - no stored credential to leak or
-  # rotate. mountPath must match the fact's ctlabs_vault_setup.kubernetes[].
-  # mount on the vdb1 side (see roles/ctlabs_vault/README.md in
-  # ctlabs-ansible).
-  kubernetesAuth:
-    mountPath: kubernetes
-    # Reviewer identity Vault uses to call the K8s TokenReview API when
-    # validating the ServiceAccount tokens above. Cluster-wide, one per
-    # cluster (not per environment) - off here, turned on only by
-    # issuers.yaml (the base app), or every Application that loaded this
-    # file would try to create it and fight over ownership.
-    reviewer:
-      enabled: false
-      serviceAccountName: cert-vault-sync-vault-reviewer
-  # The CA that signed vdb1's own TLS serving cert (not the k8s auth CA used
-  # above - that one validates ServiceAccount tokens, this one validates
-  # Vault's server certificate). Delivered as a ConfigMap
-  # (provider.vault.caProvider) rather than inline base64 (provider.vault.
-  # caBundle) so it reads as plain PEM in git instead of a wall of base64,
-  # and so it's one object instead of N copies pasted into every
-  # ClusterSecretStore. Off here - only issuers.yaml (the base app) turns it
-  # on and supplies the actual PEM, same pattern as caBootstrap/letsencrypt/
-  # the reviewer identity above.
-  ca:
-    enabled: false
-    configMapName: cert-vault-sync-vault-ca
-    pem: ""
+# Issuer instances - owned SOLELY by the base Application (issuers.yaml);
+# empty here so no other Application can render one. A bare list, no
+# shared defaults: entries are self-contained and heterogeneous (an ACME
+# entry and a privateCA entry share nothing but name/enabled), each is
+# either   {name, enabled?, acme: {...}}  or  {name, enabled?, privateCA: {...}}.
+# enabled defaults to true (presence = render); an entry with neither
+# acme: nor privateCA: fails the render rather than producing nothing.
+issuers: []
 
 # -----------------------------------------------------------------------------
-# defaults: common per-certificate values. Any key here can be overridden on
-# an individual entry under `certs:` (e.g. certs[].issuer, certs[].privateKey,
-# certs[].vault, certs[].refreshInterval) - overrides are deep-merged on top
-# of this block, so a cert only needs to specify what differs. Add new common
-# attributes here as they come up instead of repeating them per-cert.
+# defaults: Certificate defaults - the shared attributes of the certificate
+# class (issuer ref, key policy, lifetime/renewal math). Any key can be
+# overridden on an individual entry under certificates: (deep-merged on top
+# of this block), so a cert only specifies what differs. Store refs and
+# PushSecret/link settings are NOT here: they belong to their own classes.
 # -----------------------------------------------------------------------------
 defaults:
+  # The certificate references an issuer instance by NAME only - all
+  # issuer config (ACME server/email/solvers, CA chain/duration) lives
+  # in issuers.yaml, never here. kind is not a cert-side value: this
+  # chart only ever renders ClusterIssuers (both variants), so the
+  # template emits kind: ClusterIssuer itself. The name is checked
+  # against issuers on the check-only superset render (see
+  # templates/certificates/certificates.yml).
   issuer:
-    name: ctlabs-internal-ca   # override per-cert, e.g. {name: letsencrypt-cloudflare, kind: ClusterIssuer}, for a real public domain
-    kind: ClusterIssuer
-
+    name: ctlabs-internal-ca   # override per-cert, e.g. {name: lecf-oa-prod}, for a real public domain
   privateKey:
     algorithm: RSA   # RSA | ECDSA | Ed25519 (cert-manager spec.privateKey.algorithm)
     size: 4096       # RSA: 2048/3072/4096/8192, ECDSA: 256/384/521, ignored for Ed25519
     rotationPolicy: Always   # Always | Never - rotate the key on every renewal. Pinned
                              # explicitly (cert-manager >= v1.18 already defaults to Always)
                              # so intent survives downgrades / feature-gate changes.
-  vault:
-    mount: secrets/uat
-    includeCaCert: true   # ACME-issued certs (e.g. Let's Encrypt) have no separate ca.crt key - set false per-cert
-
-  refreshInterval: 1m
-
   # duration (spec.duration): REQUESTED lifetime. Fully honored by our own
   # internal CA, but for ACME issuers (Let's Encrypt) it's only a hint the
   # issuer may ignore - LE currently issues 90d regardless of what's asked.
   #duration: 2160h   # 90d, Go duration units only (h/m/s - no "d" suffix)
   duration: 1h
-
   # renewBeforePercentage, NOT a fixed renewBefore: renew at this % of
   # whatever lifetime the issuer ACTUALLY returned (not the requested
   # duration above) - stays correct automatically as public CAs keep
@@ -104,7 +122,6 @@ defaults:
   # absolute renewBefore instead if ever needed (and set
   # renewBeforePercentage: null on that cert to drop this default).
   renewBeforePercentage: 10
-  
   # Renewal spread - RENEWALS ONLY. This never delays initial issuance (all
   # Certificates are created at once; first issuance is immediate and gets
   # planned separately against the CA's issuance quota) and never delays a
@@ -133,12 +150,23 @@ defaults:
   # no effect on a per-cert absolute renewBefore override.
   renewBeforePercentageSpread: 5
 
-# cn is automatically included as a dnsNames SAN - no need to repeat it in
-# san: below (skipped only if san: already lists that exact name). Note a
-# wildcard entry like *.example.com does NOT imply example.com itself.
+# Certificate instances. cn is automatically included as a dnsNames SAN -
+# no need to repeat it in san: (skipped only if san: already lists that
+# exact name). A wildcard entry like *.example.com does NOT imply
+# example.com itself.
 #
-# certs: is empty here - each environment's Application supplies its own
-# list via its own override file (certs-dev.yaml/certs-uat.yaml/
-# certs-prod.yaml), which replaces this empty list wholesale (Helm replaces
-# a list-valued key across -f files, it doesn't merge it).
-certs: []
+# Empty here - each environment's Application supplies its list via its own
+# overlay (certs-dev/certs-uat/certs-prod), which REPLACES this list
+# wholesale (Helm replaces list-valued keys across -f files, no merge).
+# Every entry needs store: (no default - an env-specific mount in the
+# shared base was a footgun: uat certs silently inherited it) and inherits
+# issuer: from defaults above unless overridden.
+certificates: []
+
+# PushSecret - the sync edge between a certificate's k8s Secret and its
+# store, one per certificate (templates/sync/push-secrets.yml). The edge has
+# its own attributes; link-wide config here, per-cert override via
+# certificates[].sync: {refreshInterval, includeCaCert}.
+sync:
+  refreshInterval: 1m
+  includeCaCert: true   # ACME-issued certs (e.g. Let's Encrypt) have no separate ca.crt key - set false per-cert

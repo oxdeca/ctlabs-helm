@@ -3,99 +3,62 @@
 # -----------------------------------------------------------------------------
 # File: cert-vault-sync/issuers.yaml
 # Description: override for the cert-vault-sync (base) Application
-#              (source.helm.valueFiles: [values.yaml, issuers.yaml]). Turns
-#              on the cluster-wide singletons that every certificate relies
-#              on but only ONE Application may own: the internal CA chain,
-#              the Let's Encrypt ClusterIssuers, and the Vault k8s-auth
-#              reviewer identity. No certs: here - every certificate belongs
-#              to exactly one per-environment Application (certs-dev.yaml/
-#              certs-uat.yaml/certs-prod.yaml), never to this one.
-# -----------------------------------------------------------------------------
-
-caBootstrap:
-  enabled: true
-  issuerName: ctlabs-internal-ca
-  caSecretName: cert-vault-sync-ca-secret
-  duration: 8760h
-
-# -----------------------------------------------------------------------------
-# letsencrypt: ACME ClusterIssuer(s) using a Cloudflare DNS-01 solver, for
-# certs on a real public domain delegated to Cloudflare (the internal CA
-# above is for *.ctlabs.internal, which isn't a public domain LE can
-# validate). issuers: is a list - add as many as needed (e.g. separate
-# Cloudflare accounts/zones).
+#              (source.helm.valueFiles: [values.yaml, issuers.yaml]). The
+#              ONLY Application that declares issuer instances - the
+#              cluster-wide singletons every certificate relies on but only
+#              ONE Application may own. No secretStores instances and no
+#              certificates here: stores and certificates belong to the
+#              per-environment Applications (certs-dev/uat/prod.yaml),
+#              never to this one.
 #
-# The Cloudflare API token is NEVER a chart value - only a Secret name/key
-# are referenced here. Create the Secret out-of-band, in the `cert-manager`
-# namespace (ClusterIssuer secretRefs always resolve against cert-manager's
-# cluster-resource-namespace, same as caBootstrap's own CA secret above):
-#   kubectl -n cert-manager create secret generic <name> \
-#     --from-literal=api-token=<token>
+#              Two issuer variants, one schema (values.yaml issuers):
+#                privateCA - internal CA; the chart bootstraps the whole
+#                            chain (self-signed root -> CA cert -> this
+#                            issuer), so a fresh lab gets a fresh PKI with
+#                            nothing to import.
+#                acme      - ACME (Cloudflare DNS-01) for real public
+#                            domains; the internal CA above is for
+#                            *.ctlabs.internal, which isn't a public domain
+#                            LE can validate.
+#
+#              Cluster-wide singletons ONLY - nothing else belongs here:
+#              no secretStores instances (those live in each env's
+#              certs-<env>.yaml), no certificates, and no Vault connection
+#              config (that is values.yaml, shared by every Application).
+#              The Vault TLS CA ConfigMap is also NOT here - it is out-of-band
+#              lab material (see values.yaml secretStores.vault.ca).
 # -----------------------------------------------------------------------------
-letsencrypt:
-  issuers:
-    - issuerName: letsencrypt-cf-staging
-      enabled: false
+issuers:
+  - name: ctlabs-internal-ca
+    privateCA:
+      secretName: cert-vault-sync-ca-secret   # key/cert Secret the CA issuer reads (namespace: cert-manager)
+      duration: 8760h                          # root CA lifetime (Go duration units)
+
+  # -----------------------------------------------------------------------------
+  # ACME entries: the Cloudflare API token is NEVER a chart value - only a
+  # Secret name/key are referenced. Create the Secret out-of-band, in the
+  # `cert-manager` namespace (ClusterIssuer secretRefs always resolve
+  # against cert-manager's cluster-resource-namespace, same as the private
+  # CA secret above):
+  #   kubectl -n cert-manager create secret generic <name> \
+  #     --from-literal=api-token=<token>
+  # enabled: false keeps the entry defined but unrendered (staging /
+  # not-yet-live toggles).
+  # -----------------------------------------------------------------------------
+  - name: letsencrypt-cf-staging
+    enabled: false
+    acme:
       server: https://acme-staging-v02.api.letsencrypt.org/directory
       email: "cloudflare@oxdeca.com"
       cloudflare:
         secretRef:
           name: cloudflare-staging-api-token
 
-    - issuerName: lecf-oa-prod
-      enabled: false
+  - name: lecf-oa-prod
+    enabled: false
+    acme:
       server: https://acme-v02.api.letsencrypt.org/directory
       email: wschaefer@oanda.com
       cloudflare:
         secretRef:
           name: lecf-oa-prod-api-token
-
-    # Second issuer, e.g. another zone/account - give it its own issuerName,
-    # email/zone as needed, and its own Secret so tokens never mix:
-    # - enabled: true
-    #   issuerName: letsencrypt-cf-prod
-    #   server: https://acme-v02.api.letsencrypt.org/directory
-    #   email: "cloudflare@oxdeca.com"
-    #   cloudflare:
-    #     secretRef:
-    #       name: cloudflare-prod-api-token
-
-vault:
-  ca:
-    enabled: true
-    pem: |
-      -----BEGIN CERTIFICATE-----
-      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
-      FRc3H3baIq+ieosgzO+m
-      -----END CERTIFICATE-----
-  kubernetesAuth:
-    reviewer:
-      enabled: true

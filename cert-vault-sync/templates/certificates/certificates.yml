@@ -1,0 +1,95 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/certificates/certificates.yml
+# One Certificate per certificates entry (defaults: deep-merged over).
+# -----------------------------------------------------------------------------
+
+{{- $certs := .Values.certificates }}
+{{- $certCount := len $certs }}
+{{- $issuerNames := list }}
+{{- if $.Values.issuers }}
+{{-   range $.Values.issuers }}{{- $issuerNames = append $issuerNames .name }}{{- end }}
+{{- end }}
+{{- /* Reference checks - the certificate carries both refs, so this is the
+       one place they can be validated. store: is always checkable (the
+       store is declared by this Application's own overlay). issuer: is only
+       checkable when issuers are in the same render - i.e. on the
+       check-only superset render (values.yaml + issuers.yaml + certs-X),
+       never on a deployed env Application (its overlay never loads
+       issuers.yaml, so $issuerNames stays empty and the check is skipped). */}}
+{{- range $cert := $certs }}
+{{-   $m := mergeOverwrite (deepCopy $.Values.defaults) $cert }}
+{{-   $store := default "" $m.store }}
+{{-   $storeDef := index $.Values.secretStores $store }}
+{{-   if not $store }}
+{{-     fail (printf "certificates entry cn=%q: missing required store: ref (declare the target under secretStores)" $cert.cn) }}
+{{-   else if not $storeDef }}
+{{-     fail (printf "certificates entry cn=%q: store %q is not declared under secretStores" $cert.cn $store) }}
+{{-   else if not (hasKey $storeDef "mount") }}
+{{-     fail (printf "certificates entry cn=%q: store %q is not a store instance (secretStores.vault is the connection, not a store)" $cert.cn $store) }}
+{{-   end }}
+{{-   if and $issuerNames (not (has $m.issuer.name $issuerNames)) }}
+{{-     fail (printf "certificates entry cn=%q: issuer %q is not declared in issuers" $cert.cn $m.issuer.name) }}
+{{-   end }}
+{{- end }}
+{{- range $i, $cert := $certs }}
+---
+{{- $merged := mergeOverwrite (deepCopy $.Values.defaults) $cert }}
+{{- $slug := include "cert-vault-sync.slug" $merged.cn }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $slug }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  secretName: {{ $slug }}-tls
+  commonName: {{ $merged.cn | quote }}
+  {{- if $merged.duration }}
+  duration: {{ $merged.duration | quote }}
+  {{- end }}
+  {{- if $merged.renewBefore }}
+  renewBefore: {{ $merged.renewBefore | quote }}
+  {{- end }}
+  {{- if $merged.renewBeforePercentage }}
+  renewBeforePercentage: {{ include "cert-vault-sync.renewBeforePercentage" (dict "cert" $merged "index" $i "count" $certCount) }}
+  {{- end }}
+  issuerRef:
+    name: {{ $merged.issuer.name }}
+    kind: {{ $merged.issuer.kind | default "ClusterIssuer" }}
+  {{- if $merged.privateKey }}
+  privateKey:
+    algorithm: {{ $merged.privateKey.algorithm | default "RSA" }}
+    {{- if ne ($merged.privateKey.algorithm | default "RSA") "Ed25519" }}
+    size: {{ $merged.privateKey.size | default 2048 }}
+    {{- end }}
+    rotationPolicy: {{ $merged.privateKey.rotationPolicy | default "Always" }}
+  {{- end }}
+  {{- $dnsNames := list }}
+  {{- $ipAddresses := list }}
+  {{- range $merged.san }}
+    {{- if hasPrefix "dns:" . }}
+      {{- $dnsNames = append $dnsNames (trimPrefix "dns:" .) }}
+    {{- else if hasPrefix "ip:" . }}
+      {{- $ipAddresses = append $ipAddresses (trimPrefix "ip:" .) }}
+    {{- else }}
+      {{- $dnsNames = append $dnsNames . }}
+    {{- end }}
+  {{- end }}
+  {{- /* cn is implied as a SAN - add it unless already listed explicitly (e.g. a wildcard entry covering it, or listed by hand) */}}
+  {{- if not (has $merged.cn $dnsNames) }}
+    {{- $dnsNames = prepend $dnsNames $merged.cn }}
+  {{- end }}
+  {{- if $dnsNames }}
+  dnsNames:
+    {{- range $dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if $ipAddresses }}
+  ipAddresses:
+    {{- range $ipAddresses }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

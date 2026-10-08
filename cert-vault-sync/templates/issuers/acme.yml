@@ -1,0 +1,43 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/issuers/acme.yml
+# ACME issuer variant: one ClusterIssuer per issuers entry that has an
+# acme: block. Solvers/config are Cloudflare DNS-01 today; the shape is
+# solver-agnostic (add a solver block, not a new template).
+# -----------------------------------------------------------------------------
+
+{{- range $iss := .Values.issuers }}
+{{-   if hasKey $iss "acme" }}
+{{-     $enabled := true }}
+{{-     if hasKey $iss "enabled" }}{{- $enabled = $iss.enabled }}{{- end }}
+{{-     if $enabled }}
+{{-       $acme := $iss.acme }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ required "issuers[].name is required" $iss.name }}
+spec:
+  acme:
+    server: {{ required "issuers[].acme.server is required" $acme.server | quote }}
+    email: {{ required "issuers[].acme.email is required" $acme.email | quote }}
+    # cert-manager creates/manages this secret itself on first ACME account
+    # registration - nothing to pre-create.
+    privateKeySecretRef:
+      name: {{ $iss.name }}-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              # Secret is NOT managed by this chart. ClusterIssuer secretRefs
+              # always resolve in cert-manager's cluster-resource-namespace
+              # (this install's default: `cert-manager`, same as this chart's
+              # own CA secret in pki.yaml). Create it out-of-band:
+              #   kubectl -n cert-manager create secret generic <name> \
+              #     --from-literal=<key>=<cloudflare-api-token>
+              name: {{ required "issuers[].acme.cloudflare.secretRef.name is required" $acme.cloudflare.secretRef.name }}
+              key: {{ $acme.cloudflare.secretRef.key | default "api-token" }}
+{{-     end }}
+{{-   end }}
+{{- end }}

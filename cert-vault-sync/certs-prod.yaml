@@ -2,23 +2,27 @@
 
 # -----------------------------------------------------------------------------
 # File: cert-vault-sync/certs-prod.yaml
-# Description: prod-environment cert list, loaded as a second values file
-#              ONLY by the cert-vault-sync-prod Application
+# Description: prod-environment overlay, loaded as a second values file ONLY
+#              by the cert-vault-sync-prod Application
 #              (source.helm.valueFiles: [values.yaml, certs-prod.yaml]).
-#              caBootstrap/letsencrypt/the k8s-auth reviewer stay off (their
-#              values.yaml default) here - only issuers.yaml, loaded by the
-#              base Application, turns them on.
+#              Declares prod's secretstore instance and certificate list.
+#              Issuers stay off (their values.yaml default) - only
+#              issuers.yaml, loaded by the base Application, declares
+#              issuer instances.
 # -----------------------------------------------------------------------------
 
-certs:
+secretStores:
+  prod:
+    mount: secrets/prod
+
+certificates:
+  # cn is included as a dnsNames SAN automatically - see values.yaml.
   - cn: summer.ctlabs.internal
+    store: prod
     san:
       - ip:127.0.0.1
-    vault:
-      mount: secrets/prod
 
   - cn: summertime.ctlabs.internal
+    store: prod
     san:
       - ip:127.0.0.1
-    vault:
-      mount: secrets/prod

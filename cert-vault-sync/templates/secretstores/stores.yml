@@ -1,0 +1,50 @@
+---
+
+# -----------------------------------------------------------------------------
+# File: cert-vault-sync/templates/secretstores/stores.yml
+# One ServiceAccount + ClusterSecretStore per secretStores entry carrying a
+# mount: - each store instance authenticates to Vault as its own
+# ServiceAccount (no stored Vault credential, nothing to rotate). The
+# instance key is only the certificates' reference handle; the object names
+# derive from the mount (storeName helper), exactly as before the
+# first-class-store refactor. The vault connection entry has no mount: and
+# is skipped here.
+# -----------------------------------------------------------------------------
+
+{{- range $name, $store := .Values.secretStores }}
+{{-   if hasKey $store "mount" }}
+{{- $env := base $store.mount }}
+{{- $saName := printf "cert-vault-sync-%s" $env }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  namespace: {{ $.Values.secretStores.vault.namespace | default "security-tools" }}
+
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: {{ include "cert-vault-sync.storeName" $store.mount }}
+spec:
+  provider:
+    vault:
+      server: {{ $.Values.secretStores.vault.server | quote }}
+      path: {{ $store.mount | quote }}
+      version: v2
+      caProvider:
+        type: ConfigMap
+        name: {{ $.Values.secretStores.vault.ca.configMapName }}
+        namespace: {{ $.Values.secretStores.vault.namespace | default "security-tools" }}
+        key: {{ $.Values.secretStores.vault.ca.key | default "ca.crt" }}
+      auth:
+        jwt:
+          path: {{ $.Values.secretStores.vault.jwtAuth.path | default "jwt" | quote }}
+          role: {{ $saName | quote }}
+          kubernetesServiceAccountToken:
+            serviceAccountRef:
+              name: {{ $saName }}
+              namespace: {{ $.Values.secretStores.vault.namespace | default "security-tools" }}
+{{-   end }}
+{{- end }}
