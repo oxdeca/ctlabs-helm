@@ -49,7 +49,7 @@ issuers:
     enabled: false
     acme:
       server: https://acme-staging-v02.api.letsencrypt.org/directory
-      email: "cloudflare@example.com"
+      email: cloudflare@ctlabs.internal
       cloudflare:
         secretRef:
           name: lecf-staging-api-token
@@ -58,7 +58,7 @@ issuers:
     enabled: false
     acme:
       server: https://acme-v02.api.letsencrypt.org/directory
-      email: cloudflare@example.com
+      email: cloudflare@ctlabs.internal
       cloudflare:
         secretRef:
           name: lecf-prod-api-token
