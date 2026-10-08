@@ -45,20 +45,20 @@ issuers:
   # enabled: false keeps the entry defined but unrendered (staging /
   # not-yet-live toggles).
   # -----------------------------------------------------------------------------
-  - name: letsencrypt-cf-staging
+  - name: lecf-staging
     enabled: false
     acme:
       server: https://acme-staging-v02.api.letsencrypt.org/directory
-      email: "cloudflare@oxdeca.com"
+      email: "cloudflare@example.com"
       cloudflare:
         secretRef:
-          name: cloudflare-staging-api-token
+          name: lecf-staging-api-token
 
-  - name: lecf-oa-prod
+  - name: lecf-prod
     enabled: false
     acme:
       server: https://acme-v02.api.letsencrypt.org/directory
-      email: wschaefer@oanda.com
+      email: cloudflare@example.com
       cloudflare:
         secretRef:
-          name: lecf-oa-prod-api-token
+          name: lecf-prod-api-token

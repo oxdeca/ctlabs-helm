@@ -8,7 +8,7 @@
 Reverse domain string into Vault folder path (e.g. summer.ctlabs.internal ->
 internal/ctlabs/summer). A leading "*." wildcard is stripped first, so a
 wildcard cert's path is its parent domain's path, not a literal "*" segment
-(e.g. *.g-tr2.oanda.com -> com/oanda/g-tr2).
+(e.g. *.winter.ctlabs.internal -> internal/ctlabs/winter).
 */}}
 {{- define "cert-vault-sync.reverseDomain" -}}
 {{- $domain := trimPrefix "*." . -}}
@@ -30,10 +30,11 @@ Format domain to valid RFC 1123 Kubernetes name. A leading "*." wildcard
 ("*" is not a legal name character, and unquoted would parse as a YAML
 alias in the rendered manifest) is stripped, not replaced - so a wildcard
 cn produces the exact same object name as its bare domain, same as
-reverseDomain above (e.g. *.g-tr2.oanda.com -> g-tr2-oanda-com, same as cn:
-g-tr2.oanda.com would). This also means a wildcard-in-cn entry and a
-plain-domain entry can never coexist without colliding on the same object -
-intentional, since they'd be the same certificate either way.
+reverseDomain above (e.g. *.winter.ctlabs.internal -> winter.ctlabs.internal,
+same as cn: winter.ctlabs.internal would). 
+This also means a wildcard-in-cn entry and a plain-domain entry can never
+coexist without colliding on the same object - intentional, since they'd be
+the same certificate either way.
 */}}
 {{- define "cert-vault-sync.slug" -}}
 {{- trimPrefix "*." . | replace "." "-" | replace "_" "-" | lower -}}
