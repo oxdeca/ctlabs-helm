@@ -18,6 +18,9 @@ secretStores:
 certificates:
   - cn: winter.ctlabs.internal
     store: dev
+    privateKey:
+      algorithm: ECDSA
+      size     : 256
     san:
       - ip:127.0.0.1
 

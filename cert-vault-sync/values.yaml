@@ -101,7 +101,7 @@ defaults:
   # against issuers on the check-only superset render (see
   # templates/certificates/certificates.yml).
   issuer:
-    name: ctlabs-internal-ca   # override per-cert, e.g. {name: lecf-oa-prod}, for a real public domain
+    name: ctlabs-k8s-ca   # override per-cert, e.g. {name: lecf-oa-prod}, for a real public domain
   privateKey:
     algorithm: RSA   # RSA | ECDSA | Ed25519 (cert-manager spec.privateKey.algorithm)
     size: 4096       # RSA: 2048/3072/4096/8192, ECDSA: 256/384/521, ignored for Ed25519
