@@ -29,10 +29,10 @@
 #              lab material (see values.yaml secretStores.vault.ca).
 # -----------------------------------------------------------------------------
 issuers:
-  - name: ctlabs-internal-ca
+  - name: ctlabs-k8s-ca
     privateCA:
-      secretName: cert-vault-sync-ca-secret   # key/cert Secret the CA issuer reads (namespace: cert-manager)
-      duration: 8760h                          # root CA lifetime (Go duration units)
+      secretName: ctlabs-k8s-ca-secret   # key/cert Secret the CA issuer reads (namespace: cert-manager)
+      duration: 8760h                    # root CA lifetime (Go duration units)
 
   # -----------------------------------------------------------------------------
   # ACME entries: the Cloudflare API token is NEVER a chart value - only a
