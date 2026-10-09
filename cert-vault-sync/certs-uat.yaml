@@ -13,13 +13,9 @@
 
 secretStores:
   uat:
-    # uat used to inherit this from the shared base (defaults.vault.mount)
-    # while dev/prod declared it per-cert - declared here now, like every
-    # other env, so no env-specific value lives in values.yaml.
     mount: secrets/uat
 
 certificates:
-  # cn is included as a dnsNames SAN automatically - see values.yaml.
   - cn: fall.ctlabs.internal
     store: uat
     san:

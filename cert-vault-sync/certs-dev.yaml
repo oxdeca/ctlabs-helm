@@ -16,7 +16,6 @@ secretStores:
     mount: secrets/dev
 
 certificates:
-  # cn is included as a dnsNames SAN automatically - see values.yaml.
   - cn: winter.ctlabs.internal
     store: dev
     san:
