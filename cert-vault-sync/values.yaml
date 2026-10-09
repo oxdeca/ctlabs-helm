@@ -68,7 +68,7 @@ secretStores:
     # pipeline: kubectl create configmap from /etc/ca-ctlabs/ca-ctlabs.crt)
     # and referenced by name+key only.
     ca:
-      configMapName: cert-vault-sync-vault-ca
+      configMapName: ca-ctlabs-crt
       key: ca.crt
   # Instances are sibling entries of `vault:` above, keyed by the name
   # certificates reference, e.g.:
