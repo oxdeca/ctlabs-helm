@@ -2,6 +2,7 @@
 headlamp:
   config:
     baseURL: "/headlamp"
+    unsafeUseServiceAccountToken: true
 
 # Gateway API routing configuration
 gateway:
