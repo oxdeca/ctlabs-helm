@@ -1,0 +1,11 @@
+# Configure upstream headlamp chart
+headlamp:
+  config:
+    baseURL: "/headlamp"
+
+# Gateway API routing configuration
+gateway:
+  name: traefik-gateway
+  namespace: traefik
+  hostname: "" # Leave empty if matching all requests to the gateway IP, or specify your domain
+  path: /headlamp

@@ -1,0 +1,14 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: {{ .Release.Name }}-headlamp-grant
+  namespace: {{ .Release.Namespace }}
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      namespace: {{ .Values.gateway.namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: {{ .Release.Name }}-headlamp

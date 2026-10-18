@@ -1,0 +1,10 @@
+apiVersion: v2
+name: headlamp-gwapi
+description: Wrapper chart for Headlamp with Traefik Gateway API integration
+type: application
+version: 0.1.0
+appVersion: "0.46.0"
+dependencies:
+  - name: headlamp
+    version: 0.46.0
+    repository: https://kubernetes-sigs.github.io/headlamp/
