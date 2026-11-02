@@ -81,6 +81,12 @@ spec:
     {{- $dnsNames = prepend $dnsNames $merged.cn }}
   {{- end }}
   {{- if $dnsNames }}
+  {{- if $merged.usages }}
+  usages:
+    {{- range $merged.usages }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- end }}
   dnsNames:
     {{- range $dnsNames }}
     - {{ . | quote }}
